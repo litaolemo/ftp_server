@@ -1,0 +1,18 @@
+用户名 alex 密码123 采用md5加密方式储存密码
+路径 conf/accounts.ini
+
+打开命令：需要在当前文件夹打开shell
+python*\ftp\servers\server\main_server.py start
+python *\ftp\user\client.py -s localhost -P 9998
+
+功能实现了
+上传 put + user文件夹下的文件名
+下载 get + 文件名
+显示目录 ls
+切换目录 cd
+断点续传 取消断电续传输入back
+
+服务器端下载目录在home\alex
+实现了进度条功能
+对目录访问进行了限制，只能访问自己的目录
+对磁盘进行了限额 在 conf/accounts.ini  的limit下进行调整 超出会报出超出限额

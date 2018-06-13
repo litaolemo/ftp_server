@@ -1,0 +1,3 @@
+﻿python F:\python\python学习\作业\ftp\servers\server\main_server.py start
+python F:\python\python学习\作业\ftp\user\client.py -s localhost -P 9998
+用户名alex 密码123
