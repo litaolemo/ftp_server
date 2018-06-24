@@ -1,9 +1,14 @@
-用户名 alex 密码123 采用md5加密方式储存密码
+用户名 alex,litao,li
+密码123 采用md5加密方式储存密码
 路径 conf/accounts.ini
 
-打开命令：需要在当前文件夹打开shell
-python*\ftp\servers\server\main_server.py start
-python *\ftp\user\client.py -s localhost -P 9998
+
+打开命令：直接用python运行
+
+最大并发数在servers/conf/settings.py 中配置，默认为10
+
+使用queue传递conn，addr，对不同用户的消息能够进行识别，返回该用户的数据
+
 
 功能实现了
 上传 put + user文件夹下的文件名
@@ -16,3 +21,4 @@ python *\ftp\user\client.py -s localhost -P 9998
 实现了进度条功能
 对目录访问进行了限制，只能访问自己的目录
 对磁盘进行了限额 在 conf/accounts.ini  的limit下进行调整 超出会报出超出限额
+

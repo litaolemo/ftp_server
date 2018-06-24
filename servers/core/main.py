@@ -4,7 +4,8 @@ import json,hashlib,time
 import configparser
 import os
 import subprocess
-
+from concurrent.futures import ThreadPoolExecutor
+import queue
 
 class Ftpserver(object):
     """处理客户端所有的交互的socket servers"""
@@ -25,37 +26,49 @@ class Ftpserver(object):
 
     def __init__(self,management_instance):
         self.management_instance = management_instance
-        self.sock = socket(AF_INET,SOCK_STREAM)
-        self.sock.bind((settings.HOST,settings.PORT))
-        self.sock.listen(5)
+        # self.sock = socket(AF_INET,SOCK_STREAM)
+        # self.sock.bind((settings.HOST,settings.PORT))
+        # self.sock.listen(5)
         self.accounts = self.load_account()
         self.user_obj = None
         self.user_current_dir = None
         self.limit = None
+        self.q = queue.Queue()
 
     def run_forever(self):
         """启动socket servers"""
         print('starting FTP servers on %s:%s'.center(50, '-') % (settings.HOST,settings.PORT))
+        sock = socket(AF_INET, SOCK_STREAM)
+        sock.bind((settings.HOST,settings.PORT))
+        sock.listen(10)
+        executor = ThreadPoolExecutor(settings.MAXThread)
+
         while True:
-            self.request, self.addr = self.sock.accept()
+            request, addr = sock.accept()
             #print(self.request,self.addr)
-            print("got a new connection form %s" % (self.addr,))
+            print("got a new connection form %s" % (addr,))
             try:
-                self.handle()
+                executor.submit(self.handle)
+                self.q.put(request)
+                self.q.put(addr)
             except Exception as e:
                 print("Error happend with client",e)
-                self.request.close()
+                request.close()
 
     def _auth(self,data):
-        print("auth",data)
+        request = self.q.get()
+        addr = self.q.get()
+        #print("auth",data)
         if self.authenticate(data.get('username'),data.get('password')):
             print("通过认证")
-            self.send_response(200)
+            if not os.path.exists(os.path.join(settings.USER_HOME_DIR, data.get ('username'))):
+                os.mkdir(os.path.join(settings.USER_HOME_DIR, data.get('username')))
+            self.send_response(200,request,addr)
         else:
             print("通过失败")
-            self.send_response(201)
+            self.send_response(201,request,addr)
 
-    def send_response(self,status_code,*args,**kwargs):
+    def send_response(self,status_code,request,addr,*args,**kwargs):
         """打包发送消息给客户端"""
         data = kwargs
         data["status_code"] = status_code
@@ -66,22 +79,33 @@ class Ftpserver(object):
         if len(b_data) < self.MSG_SIZE:
             data['fill'] = data['fill'].zfill(self.MSG_SIZE - len(b_data))
             b_data = json.dumps(data).encode("utf-8")
-            self.request.send(b_data)
+            request.send(b_data)
 
     def handle(self):
         """处理指令交互"""
+        request = self.q.get()
+        addr = self.q.get()
+        print(request,addr)
         while True:
-            raw_data = self.request.recv(self.MSG_SIZE)
+            raw_data = request.recv(self.MSG_SIZE)
             #print('-------->', raw_data)
             if not raw_data:
-                print("%s连接丢失" % self.addr)
-                del self.request,self.addr
+                print("%s连接丢失" % addr)
+                del request,addr
                 break
             data = json.loads(raw_data.decode("utf-8"))
             action_type = data.get('action_type')
+            username = data.get('username')
             if action_type:
                 if hasattr(self, "_%s"% action_type):
+                    self.user_obj = self.accounts[username]
+                    self.user_obj['home'] = os.path.join(settings.USER_HOME_DIR, username)
+                    # print(self.user_obj['home'])
+                    self.user_current_dir = self.user_obj['home']
+                    self.limit = int(self.accounts[username]['limit'])
                     func = getattr(self, "_%s" % action_type)
+                    self.q.put(request)
+                    self.q.put(addr)
                     func(data)
             else:
                 print("invalid command")
@@ -110,7 +134,7 @@ class Ftpserver(object):
                 print("用户名或密码错误")
                 return False
 
-    def _get(self,data):
+    def _get(self,data,):
         """下载文件
         1. 拿到文件名
         2. 判断文件是否存在
@@ -119,24 +143,28 @@ class Ftpserver(object):
         3.发送数据
 
         """
+        request = self.q.get()
+        addr = self.q.get()
         filename = data.get('filename')
         full_path = os.path.join(self.user_current_dir,filename)
         print(full_path)
         if os.path.isfile(full_path):
             filesize = os.stat(full_path).st_size
-            self.send_response(301,file_size=filesize)
+            self.send_response(301,request,addr,file_size=filesize)
             print("准备发送")
             f = open(full_path,'rb')
             for line in f:
-                self.request.send(line)
+                request.send(line)
             else:
                 print("发送完成")
             f.close()
         else:
-            self.send_response(300)
+            self.send_response(300,request,addr)
 
-    def _ls(self,data):
+    def _ls(self,data,):
         """返回文件目录"""
+        request = self.q.get()
+        addr = self.q.get()
         cmd_obj = subprocess.Popen('dir %s' % self.user_current_dir,shell=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         stdout = cmd_obj.stdout.read()
         stderr = cmd_obj.stderr.read()
@@ -146,16 +174,18 @@ class Ftpserver(object):
         if not cmd_result:
             cmd_result = b'no list'
 
-        self.send_response(302,cmd_result_size=len(cmd_result))
-        self.request.sendall(cmd_result)
+        self.send_response(302,request,addr,cmd_result_size=len(cmd_result))
+        request.sendall(cmd_result)
 
-    def _cd(self,data):
+    def _cd(self,data,):
         """根据请求值返回路径
         1.把target_dir和user_current_dir拼接
         2.检查要切换的目录是否存在
             2.1 存在 返回新路径的dir
             2.2 不存在 返回错误
         """
+        request = self.q.get()
+        addr = self.q.get()
         target_dir = data.get('target_dir')
         full_path = os.path.abspath(os.path.join(self.user_current_dir,target_dir))
         print(full_path)
@@ -163,11 +193,11 @@ class Ftpserver(object):
             if full_path.startswith(self.user_obj['home']):
                 relative_current_dir = full_path.replace(self.user_obj['home'], "")
                 self.user_current_dir = full_path
-                self.send_response(350,current=relative_current_dir)
+                self.send_response(350,request,addr,current=relative_current_dir)
             else:
-                self.send_response(351)
+                self.send_response(351,request,addr)
         else:
-            self.send_response(351)
+            self.send_response(351,request,addr)
 
     def _put(self,data):
         """上传文件到服务器
@@ -179,7 +209,8 @@ class Ftpserver(object):
         :param data:
         :return:
         """
-
+        request = self.q.get()
+        addr = self.q.get()
         local_file = data.get("filename")
         full_path = os.path.join(self.user_current_dir, local_file)  # 文件
         print(full_path)
@@ -192,12 +223,12 @@ class Ftpserver(object):
         total_size = data.get('file_size')
         received_size = 0
         if self.limit > total_size + self.getFileSize(self.user_current_dir):
-            self.send_response(301)
+            self.send_response(301,request,addr)
             while received_size < total_size:
                 if total_size - received_size < 8192:  # last recv
-                    data = self.request.recv(total_size - received_size)
+                    data = request.recv(total_size - received_size)
                 else:
-                    data = self.request.recv(8192)
+                    data = request.recv(8192)
                 received_size += len(data)
                 f.write(data)
                 print(received_size, total_size)
@@ -206,9 +237,9 @@ class Ftpserver(object):
                 f.close()
         else:
             print("文件超过限制")
-            self.send_response(303)
+            self.send_response(303,request,addr)
 
-    def _re_get(self,data):
+    def _re_get(self,data,):
         """re-send file to client
         1. 拼接文件路径
         2. 判断文件是否存在
@@ -220,6 +251,8 @@ class Ftpserver(object):
 
 
         """
+        request = self.q.get()
+        addr = self.q.get()
         print("_re_get",data)
         abs_filename = data.get('abs_filename')
         full_path = os.path.join(self.user_obj['home'],abs_filename.strip("\\"))
@@ -227,18 +260,18 @@ class Ftpserver(object):
         print("user home",self.user_obj['home'])
         if os.path.isfile(full_path): #2.1
             if os.path.getsize(full_path) == data.get('file_size'):#2.1.2
-                self.send_response(401)
+                self.send_response(401,request,addr)
                 f = open(full_path,'rb')
                 f.seek(data.get("received_size"))
                 for line in f:
-                    self.request.send(line)
+                    request.send(line)
                 else:
                     print("-----file re-send done------")
                     f.close()
             else:#2.1.1
-                self.send_response(402,file_size_on_server=os.path.getsize(full_path))
+                self.send_response(402,request,addr,file_size_on_server=os.path.getsize(full_path))
         else:
-            self.send_response(300)
+            self.send_response(300,request,addr)
 
     @staticmethod
     def getFileSize(filePath, size=0):

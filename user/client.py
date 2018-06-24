@@ -4,12 +4,13 @@ import json
 import os
 import shelve
 
+
 class FtpClient (object):
     """ftp客户端"""
     MSG_SIZE = 1024  # 消息最长1024
 
     def __init__(self):
-        self.sock = socket (AF_INET, SOCK_STREAM)
+        self.sock = socket(AF_INET, SOCK_STREAM)
         self.username = None
         self.terminal_display = None
         self.shelve_obj = shelve.open("db")
@@ -18,22 +19,23 @@ class FtpClient (object):
         parser.add_option("-P", "--port", type="int", dest="port", help="ftp server port")
         parser.add_option("-u", "--username", dest="username", help="username info")
         parser.add_option("-p", "--password", dest="password", help="password info")
-        self.options, self.args = parser.parse_args()
-
-        # print(self.options,self.args,type(self.options),self.options.server)
+        #self.options, self.args = parser.parse_args()
+        self.options = {'server': 'localhost', 'port': 9999, 'username': None, 'password': None}
+        self.args = []
+        #print(self.options,self.args,type(self.options),self.options.server)
         self.argv_verification()
 
         self.make_connection()
 
     def argv_verification(self):
         """检查合法性"""
-        if not self.options.server or not self.options.port:
+        if not self.options["server"] or not self.options["port"]:
             exit("Error: must supply server and port parameters")
 
     def make_connection(self):
         """建立socket连接"""
-        print((self.options.server, self.options.port))
-        self.sock.connect((self.options.server, self.options.port))
+        print((self.options["server"], self.options["port"]))
+        self.sock.connect((self.options["server"], self.options["port"]))
 
     def auth(self):
         """用户认证"""
@@ -56,7 +58,7 @@ class FtpClient (object):
                 self.current_dir = "\\"
                 return True
             else:
-                print(response.get['status_msg'])
+                print(response['status_msg'])
             count += 1
 
     def unfubusged_file_check(self):
@@ -118,7 +120,6 @@ class FtpClient (object):
             while True:
                 user_input = input("%s>>:"%self.terminal_display)
                 if not user_input:continue
-
                 cmd_list = user_input.split()
                 if hasattr(self,"_%s"%cmd_list[0]):
                     func = getattr(self,"_%s"%cmd_list[0])
@@ -141,7 +142,8 @@ class FtpClient (object):
         return True
 
     def send_msg(self,action_type,**kwargs):
-        msg_data = {'action_type':action_type,
+        msg_data = {'action_type': action_type,
+                    'username': self.username,
                     'fill': '',
                     }
         msg_data.update(kwargs)
