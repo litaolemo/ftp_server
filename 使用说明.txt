@@ -1,14 +1,14 @@
 用户名 alex,litao,li
-密码123 采用md5加密方式储存密码
+密码123
+采用md5加密方式储存密码
 路径 conf/accounts.ini
+新建用户会自动创建目录
 
 
-打开命令：直接用python运行
-
+已修改成直接用python运行
 最大并发数在servers/conf/settings.py 中配置，默认为10
-
 使用queue传递conn，addr，对不同用户的消息能够进行识别，返回该用户的数据
-
+多线程命令在/server/core/main.py def run_forever中
 
 功能实现了
 上传 put + user文件夹下的文件名
