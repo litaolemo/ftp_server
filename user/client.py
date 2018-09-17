@@ -251,7 +251,7 @@ class FtpClient (object):
                 self.send_msg('put',file_size=total_size,filename=local_file)
                 f = open(local_file,'rb')
                 uploaded_size = 0
-                #last_percent = 0
+
                 response = self.get_response()
                 if response.get ('status_code') == 301:
                     progress_generator = self.progress_bar(total_size)
@@ -270,9 +270,7 @@ class FtpClient (object):
 
     def progress_bar(self,total_size,current_percent=0,last_percent=0):
 
-        # current_percent = 0
-        # last_percent = 0
-        #received_size = 0
+
         while True:
             received_size = yield current_percent
             current_percent = int(received_size / total_size *100)
